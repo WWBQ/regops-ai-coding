@@ -1,0 +1,54 @@
+"""Standalone AI Coding FastAPI application."""
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from agent.core.logging_config import configure_logging
+from agent.env_utils import load_environment
+
+# ---------------------------------------------------------------
+# 启动前置初始化
+# ---------------------------------------------------------------
+# 注意：FastAPI/Uvicorn 是当前实现中唯一的服务化入口。
+# 这里显式调用 load_environment() 加载 .env 文件中的配置，
+# 并调用 configure_logging() 初始化日志系统。
+# 这样做的好处是不依赖 langgraph dev 等开发服务器自带的环境加载机制。
+# ---------------------------------------------------------------
+load_environment()
+configure_logging()
+
+# 延迟导入 API 路由模块
+# 使用 # noqa: E402 忽略 flake8 关于导入顺序的警告，
+# 因为此处必须等环境变量和日志配置初始化完成后才能导入路由模块。
+from agent.api import health_router, coding_agent_router  # noqa: E402
+from agent.core.graph import close_persistence  # noqa: E402
+from agent.backends.open_sandbox import close_sandbox_connections  # noqa: E402
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        close_sandbox_connections()
+        close_persistence()
+
+# ---------------------------------------------------------------
+# 创建 FastAPI 应用实例
+# ---------------------------------------------------------------
+app = FastAPI(
+    title="AI Coding Harness API",
+    version="0.1.0",                     # 应用版本号
+    lifespan=lifespan,
+)
+
+# ---------------------------------------------------------------
+# 注册路由
+# ---------------------------------------------------------------
+# health_router - 健康检查
+# coding_agent_router - AI Coding 会话与流式接口
+# ---------------------------------------------------------------
+app.include_router(health_router)
+app.include_router(coding_agent_router)
